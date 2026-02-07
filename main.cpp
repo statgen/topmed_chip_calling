@@ -78,12 +78,13 @@ int main(int argc, char** argv)
   auto chip_genes = split_file_to_set("data/whitelist_filter_20230531/NEJM_2017_genes_01262020_first_col.MLL_fix.txt");
   auto missense_variants = split_file_to_set("data/whitelist_filter_20230531/CHIP_missense_vars_cv_04102022.txt");
   auto splice_genes = split_file_to_set("data/whitelist_filter_20230531/CHIP_splice_vars_agb_01262020.txt");
-  auto lof_genes = split_file_to_set("data/whitelist_filter_20230531/CHIP_nonsense_FS_vars_agb_01262020.txt");
+  auto lof_genes = split_file_to_set("data/whitelist_filter_20230531/CHIP_nonsense_FS_vars_agb_01262020.MLL_fix.txt");
 
   std::vector<float> ages;
   {
     std::vector<std::string> ages_str;
     std::ifstream is("data/merged_ad.nwd_ids.age.txt");
+    //std::ifstream is("data/filter_param.txt");
     bool b = is.good();
     b = is.good();
     std::istream_iterator<std::string> s(is), e;
@@ -95,10 +96,11 @@ int main(int argc, char** argv)
 
   if (input_file.samples().size() != ages.size())
     return std::cerr << "Error: age file should contain lines for each sample in the VCF and with the same order\n", EXIT_FAILURE;
-  //input_file.reset_bounds(savvy::genomic_region("chr2", 25234372, 25234373)); R882
+  //input_file.reset_bounds(savvy::genomic_region("chr2", 25234372, 25234373)); //R882
   //input_file.reset_bounds(savvy::genomic_region("chr2", 25247132, 25247133));
   //input_file.reset_bounds(savvy::genomic_region("chr21",43092956, 43107570));
-  input_file.reset_bounds(savvy::genomic_region("chr17", 7669662, 7669663));
+  //input_file.reset_bounds(savvy::genomic_region("chr17", 7669662, 7669663));
+  //input_file.reset_bounds(savvy::genomic_region("chr12", 49019423, 49060794));
   bool b = input_file.good();
 
   auto hdrs = input_file.headers();
@@ -112,68 +114,16 @@ int main(int argc, char** argv)
   hdrs.emplace_back("INFO", "<ID=KNOWN_MIS,Number=0,Type=Flag,Description=\"Variant is a known missense CHIP mutation\">");
   hdrs.emplace_back("FORMAT","<ID=VAF,Number=1,Type=Float,Description=\"Variant allele fractions with samples having less than two supporting (i.e., ALT) reads set to zero\">");
 
-  savvy::writer output_file(argv[2], savvy::file::format::vcf, hdrs, input_file.samples());
+  savvy::writer output_file(argv[2], savvy::file::format::bcf, hdrs, input_file.samples());
 
   std::vector<float> vaf(input_file.samples().size());
   savvy::variant rec;
   while (output_file && input_file >> rec)
   {
-    auto flt = rec.filters();
-    std::string s;
-    rec.get_info("Gene.refGene", s);
-    auto genes = str_split(s, "\\x3b");
-    rec.get_info("Func.refGene", s);
-    auto funcs = str_split(s, "\\x3b");
-
 //    if (genes.size() != funcs.size())
 //    {
 //      std::cerr << "Notice: gene and func vector lengths do not match: " << rec.chrom() <<":" << rec.pos() << "-" << rec.pos() << std::endl;
 //    }
-
-    std::size_t idx = 0;
-    for ( ; idx < genes.size(); ++idx)
-    {
-      std::size_t func_idx = funcs.size() == genes.size() ? idx : 0;
-      if (chip_genes.find(genes[idx]) != chip_genes.end() && (funcs[func_idx] == "exonic" | funcs[func_idx] == "splicing"))
-        break;
-    }
-
-    bool known_mis = false;
-    if (idx >= genes.size())
-    {
-      // TODO: mark fail
-      if (flt.size() == 1 && flt[0] == "PASS")
-        flt.clear();
-      flt.push_back("OFF_TARGET");
-      //std::cerr << rec.chrom() << ":" << rec.pos() << "_" << rec.ref() << "/" << (rec.alts().empty() ? "" : rec.alts()[0]) << "\tNot in gene list" << std::endl;
-
-    }
-    else
-    {
-      rec.get_info("ExonicFunc.refGene", s);
-      if (s == "nonsynonymous_SNV")
-      {
-        rec.get_info("AAChange.refGene", s);
-
-        auto aa_change = str_split(s, ",");
-        for (std::size_t i = 0; i < aa_change.size(); ++i)
-        {
-          auto aa = str_split(aa_change[i], ":");
-          if (aa.size() != 5 || aa[4].size() < 3)
-          {
-            std::cerr << "Error: cannot parse AAChange.refGene: " << rec.chrom() << ":" << rec.pos() << std::endl;
-          }
-          else
-          {
-            if (missense_variants.find(aa[0] + "\t" + aa[4].substr(2)) != missense_variants.end())
-            {
-              known_mis = true;
-              break;
-            }
-          }
-        }
-      }
-    }
 
     std::vector<std::int16_t> ad;
     rec.get_format("AD", ad);
@@ -220,6 +170,9 @@ int main(int argc, char** argv)
     age_mu[0] = age_mu[0] / age_n[0];
     age_mu[1] = age_mu[1] / age_n[1];
 
+    double germ_pval = std::numeric_limits<double>::quiet_NaN();
+    double age_pval = std::numeric_limits<double>::quiet_NaN();
+
     if (n_carriers > 1)
     {
       double sd = 0.;
@@ -235,15 +188,8 @@ int main(int argc, char** argv)
       sd = std::sqrt(sd / (n_carriers - 1.));
       double t = (0.5 - mu) / (sd / std::sqrt(n_carriers));
       boost::math::students_t_distribution<double> dist(n_carriers - 1);
-      double germ_pval =  boost::math::cdf(complement(dist, std::isnan(t) ? 0. : t));
-
+      germ_pval =  boost::math::cdf(complement(dist, std::isnan(t) ? 0. : t));
       rec.set_info("GERM_P", float(std::log10(germ_pval)));
-      if (germ_pval >= 0.05)
-      {
-        if (flt.size() == 1 && flt[0] == "PASS")
-          flt.clear();
-        flt.push_back("GERM");
-      }
     }
 
     if (age_n[0] > 1 && age_n[1] > 1)
@@ -266,18 +212,87 @@ int main(int argc, char** argv)
       double t = (age_mu[1] - age_mu[0]) / std::sqrt(sv[0] / age_n[0] + sv[1] / age_n[1]);
       double dof = square((sv[0] / age_n[0] + sv[1] / age_n[1])) / (square(sv[0] / age_n[0]) / (age_n[0] - 1.) + square(sv[1] / age_n[1]) / (age_n[1] - 1.));
       boost::math::students_t_distribution<double> dist(dof);
-      double age_pval =  boost::math::cdf(complement(dist, std::isnan(t) ? 0. : t));
-
+      age_pval =  boost::math::cdf(complement(dist, std::isnan(t) ? 0. : t));
       rec.set_info("AGE_P", float(std::log10(age_pval)));
-      if (age_pval >= 0.05)
+    }
+
+
+    bool off_target = false;
+    bool known_mis = false;
+
+    std::string s;
+    rec.get_info("Gene.refGene", s);
+    auto genes = str_split(s, "\\x3b");
+    rec.get_info("Func.refGene", s);
+    auto funcs = str_split(s, "\\x3b");
+    std::size_t idx = 0;
+    for ( ; idx < genes.size(); ++idx)
+    {
+      std::size_t func_idx = funcs.size() == genes.size() ? idx : 0;
+      if (chip_genes.find(genes[idx]) != chip_genes.end() && (funcs[func_idx] == "exonic" || funcs[func_idx] == "splicing"))
+        break;
+    }
+
+    if (idx >= genes.size())
+    {
+      off_target = true;
+      //std::cerr << rec.chrom() << ":" << rec.pos() << "_" << rec.ref() << "/" << (rec.alts().empty() ? "" : rec.alts()[0]) << "\tNot in gene list" << std::endl;
+    }
+    else
+    {
+      rec.get_info("ExonicFunc.refGene", s);
+      if (s == "nonsynonymous_SNV")
       {
-        if (flt.size() == 1 && flt[0] == "PASS")
-          flt.clear();
-        flt.push_back("AGE_ASSOC");
+        rec.get_info("AAChange.refGene", s);
+
+        auto aa_change = str_split(s, ",");
+        for (std::size_t i = 0; i < aa_change.size(); ++i)
+        {
+          auto aa = str_split(aa_change[i], ":");
+          if (aa.size() != 5 || aa[4].size() < 3)
+          {
+            std::cerr << "Error: cannot parse AAChange.refGene: " << rec.chrom() << ":" << rec.pos() << std::endl;
+          }
+          else
+          {
+            if (missense_variants.find(aa[0] + "\t" + aa[4].substr(2)) != missense_variants.end())
+            {
+              known_mis = true;
+              break;
+            }
+          }
+        }
       }
     }
 
-    if (known_mis)
+    auto flt = rec.filters();
+
+    if (n_carriers > 1 && age_n[0] > 1 && age_n[1] > 1) // Both t-tests will be applied
+    {
+      flt = {"PASS"};
+    }
+
+    if (n_carriers > 1 && germ_pval >= 0.05)
+    {
+      if (flt.size() == 1 && flt[0] == "PASS")
+        flt.clear();
+      flt.push_back("GERM");
+    }
+
+    if (age_n[0] > 1 && age_n[1] > 1 && age_pval >= 0.05)
+    {
+      if (flt.size() == 1 && flt[0] == "PASS")
+        flt.clear();
+      flt.push_back("AGE_ASSOC");
+    }
+
+    if (off_target)
+    {
+      if (flt.size() == 1 && flt[0] == "PASS")
+        flt.clear();
+      flt.push_back("OFF_TARGET");
+    }
+    else if (known_mis)
     {
       rec.set_info("KNOWN_MIS", std::vector<std::int8_t>());
       flt = {"PASS"};
