@@ -225,11 +225,14 @@ int main(int argc, char** argv)
     auto genes = str_split(s, "\\x3b");
     rec.get_info("Func.refGene", s);
     auto funcs = str_split(s, "\\x3b");
+    rec.get_info("ExonicFunc.refGene", s);
+    auto exon_funcs = str_split(s, "\\x3b");
     std::size_t idx = 0;
     for ( ; idx < genes.size(); ++idx)
     {
       std::size_t func_idx = funcs.size() == genes.size() ? idx : 0;
-      if (chip_genes.find(genes[idx]) != chip_genes.end() && (funcs[func_idx] == "exonic" || funcs[func_idx] == "splicing"))
+      std::size_t exon_func_idx = exon_funcs.size() == genes.size() ? idx : 0;
+      if (chip_genes.find(genes[idx]) != chip_genes.end() && ((funcs[func_idx] == "exonic" && exon_funcs[exon_func_idx] != "synonymous_SNV") || funcs[func_idx] == "splicing"))
         break;
     }
 
