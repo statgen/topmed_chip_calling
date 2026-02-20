@@ -76,7 +76,8 @@ std::vector<std::string> split_file_to_vector(const char* in, std::size_t size_h
 int main(int argc, char** argv)
 {
   auto chip_genes = split_file_to_set("data/whitelist_filter_20230531/NEJM_2017_genes_01262020_first_col.MLL_fix.txt");
-  auto missense_variants = split_file_to_set("data/whitelist_filter_20230531/CHIP_missense_vars_cv_04102022.txt");
+  //auto missense_variants = split_file_to_set("data/whitelist_filter_20230531/CHIP_missense_vars_cv_04102022.txt");
+  auto missense_variants = split_file_to_set("data/whitelist_filter_20230531/NEJM_2017_genes_01262020.MLL_fix.flatten.cleaned.additional_missense_v3.tsv");
   auto splice_genes = split_file_to_set("data/whitelist_filter_20230531/CHIP_splice_vars_agb_01262020.txt");
   auto lof_genes = split_file_to_set("data/whitelist_filter_20230531/CHIP_nonsense_FS_vars_agb_01262020.MLL_fix.txt");
 
@@ -101,6 +102,7 @@ int main(int argc, char** argv)
   //input_file.reset_bounds(savvy::genomic_region("chr21",43092956, 43107570));
   //input_file.reset_bounds(savvy::genomic_region("chr17", 7669662, 7669663));
   //input_file.reset_bounds(savvy::genomic_region("chr12", 49019423, 49060794));
+  //input_file.reset_bounds(savvy::genomic_region("chr12", 49051672, 49060794));
   bool b = input_file.good();
 
   auto hdrs = input_file.headers();
@@ -111,7 +113,7 @@ int main(int argc, char** argv)
   hdrs.emplace_back("INFO", "<ID=NCA,Number=1,Type=Integer,Description=\"Number of CHIP carriers with known age\">");
   hdrs.emplace_back("INFO", "<ID=AGE_P,Number=1,Type=Float,Description=\"Age association test log10 p-value\">");
   hdrs.emplace_back("INFO", "<ID=GERM_P,Number=1,Type=Float,Description=\"Germline test p-value\">");
-  hdrs.emplace_back("INFO", "<ID=KNOWN_MIS,Number=0,Type=Flag,Description=\"Variant is a known missense CHIP mutation\">");
+  hdrs.emplace_back("INFO", "<ID=KNOWN_CHIP,Number=0,Type=Flag,Description=\"Variant is a known missense or LOF CHIP mutation\">");
   hdrs.emplace_back("FORMAT","<ID=VAF,Number=1,Type=Float,Description=\"Variant allele fractions with samples having less than two supporting (i.e., ALT) reads set to zero\">");
 
   savvy::writer output_file(argv[2], savvy::file::format::bcf, hdrs, input_file.samples());
@@ -243,22 +245,21 @@ int main(int argc, char** argv)
     }
     else
     {
-      rec.get_info("ExonicFunc.refGene", s);
-      if (s == "nonsynonymous_SNV")
+      rec.get_info("AAChange.refGene", s); //rec.get_info("ExonicFunc.refGene", s);
+      if (!s.empty() && s != ".") //s == "nonsynonymous_SNV")
       {
-        rec.get_info("AAChange.refGene", s);
-
         auto aa_change = str_split(s, ",");
         for (std::size_t i = 0; i < aa_change.size(); ++i)
         {
           auto aa = str_split(aa_change[i], ":");
           if (aa.size() != 5 || aa[4].size() < 3)
           {
-            std::cerr << "Error: cannot parse AAChange.refGene: " << rec.chrom() << ":" << rec.pos() << std::endl;
+           // std::cerr << "Error: cannot parse AAChange.refGene: " << rec.chrom() << ":" << rec.pos() << std::endl;
           }
           else
           {
-            if (missense_variants.find(aa[0] + "\t" + aa[4].substr(2)) != missense_variants.end())
+            //if (missense_variants.find(aa[0] + "\t" + aa[4].substr(2)) != missense_variants.end())
+            if (missense_variants.find(aa[0] + "\t" + aa[1] + "\t" + aa[4]) != missense_variants.end())
             {
               known_mis = true;
               break;
@@ -297,7 +298,7 @@ int main(int argc, char** argv)
     }
     else if (known_mis)
     {
-      rec.set_info("KNOWN_MIS", std::vector<std::int8_t>());
+      rec.set_info("KNOWN_CHIP", std::vector<std::int8_t>());
       flt = {"PASS"};
     }
 
