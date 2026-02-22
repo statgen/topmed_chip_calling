@@ -12,6 +12,7 @@
 #include <numeric>
 #include <limits>
 #include <cstdlib>
+#include <regex>
 #include <boost/math/distributions.hpp>
 
 #include <savvy/reader.hpp>
@@ -75,11 +76,34 @@ std::vector<std::string> split_file_to_vector(const char* in, std::size_t size_h
 
 int main(int argc, char** argv)
 {
+  const int min_alt_depth = 3;
+  const float min_vaf = 0.02f;
+  const bool apply_germ_and_age_filters = false;
+
+  std::regex lof_regex("fs|X|\\*"); // fs is probably redundant as the stop codon "X" or "*" should follow
+  /*bool m2 = std::regex_search("p.X123R", lof_regex);
+  m2 = std::regex_search("p.R123X", lof_regex);
+  m2 = std::regex_search("p.R123*", lof_regex);
+  m2 = std::regex_search("p.R123H", lof_regex);
+  m2 = std::regex_search("p.R123fs*10", lof_regex);
+  m2 = std::regex_search("p.R97fsX121", lof_regex);*/
+
   auto chip_genes = split_file_to_set("data/whitelist_filter_20230531/NEJM_2017_genes_01262020_first_col.MLL_fix.txt");
   //auto missense_variants = split_file_to_set("data/whitelist_filter_20230531/CHIP_missense_vars_cv_04102022.txt");
   auto missense_variants = split_file_to_set("data/whitelist_filter_20230531/NEJM_2017_genes_01262020.MLL_fix.flatten.cleaned.additional_missense_v3.tsv");
-  auto splice_genes = split_file_to_set("data/whitelist_filter_20230531/CHIP_splice_vars_agb_01262020.txt");
-  auto lof_genes = split_file_to_set("data/whitelist_filter_20230531/CHIP_nonsense_FS_vars_agb_01262020.MLL_fix.txt");
+  //auto lof_genes = split_file_to_set("data/whitelist_filter_20230531/CHIP_nonsense_FS_vars_agb_01262020.MLL_fix.txt");
+  auto lof_genes = split_file_to_set("data/whitelist_filter_20230531/NEJM_2017_genes_01262020_nocr_mll_fix.lof.tsv");
+  //auto splice_genes = split_file_to_set("data/whitelist_filter_20230531/CHIP_splice_vars_agb_01262020.txt");
+  auto splice_genes_vec = split_file_to_vector("data/whitelist_filter_20230531/NEJM_2017_genes_01262020_nocr_mll_fix.splice.tsv");
+  std::unordered_set<std::string> splice_genes;
+  splice_genes.reserve(splice_genes_vec.size());
+  for (auto it = splice_genes_vec.begin(); it != splice_genes_vec.end(); ++it)
+  {
+    auto fields = str_split(*it, "\t");
+    if (fields.size() != 2)
+      return std::cerr << "Error: could not parse splicing genee list\n", EXIT_FAILURE;
+    splice_genes.insert(fields[1]);
+  }
 
   std::vector<float> ages;
   {
@@ -103,17 +127,24 @@ int main(int argc, char** argv)
   //input_file.reset_bounds(savvy::genomic_region("chr17", 7669662, 7669663));
   //input_file.reset_bounds(savvy::genomic_region("chr12", 49019423, 49060794));
   //input_file.reset_bounds(savvy::genomic_region("chr12", 49051672, 49060794));
+  //input_file.reset_bounds(savvy::genomic_region("chr20", 32433283, 32433447));
+  //input_file.reset_bounds(savvy::genomic_region("chr2", 25234418, 25235710));
   bool b = input_file.good();
 
   auto hdrs = input_file.headers();
   hdrs.emplace_back("FILTER", "<ID=OFF_TARGET, Description=\"Not an exonic of splicing variant in target gene\">");
-  hdrs.emplace_back("FILTER", "<ID=GERM, Description=\"Failed germline test\">");
-  hdrs.emplace_back("FILTER", "<ID=AGE_ASSOC, Description=\"Failed age association test\">");
+  if (apply_germ_and_age_filters)
+  {
+    hdrs.emplace_back("FILTER", "<ID=GERM, Description=\"Failed germline test\">");
+    hdrs.emplace_back("FILTER", "<ID=AGE_ASSOC, Description=\"Failed age association test\">");
+  }
   hdrs.emplace_back("INFO", "<ID=NC,Number=1,Type=Integer,Description=\"Number of CHIP carriers\">");
   hdrs.emplace_back("INFO", "<ID=NCA,Number=1,Type=Integer,Description=\"Number of CHIP carriers with known age\">");
   hdrs.emplace_back("INFO", "<ID=AGE_P,Number=1,Type=Float,Description=\"Age association test log10 p-value\">");
   hdrs.emplace_back("INFO", "<ID=GERM_P,Number=1,Type=Float,Description=\"Germline test p-value\">");
   hdrs.emplace_back("INFO", "<ID=KNOWN_CHIP,Number=0,Type=Flag,Description=\"Variant is a known missense or LOF CHIP mutation\">");
+  hdrs.emplace_back("INFO", "<ID=LOF,Number=0,Type=Flag,Description=\"Variant is nonsense, nonstop, or frameshif and in loss of function gene list\">");
+  hdrs.emplace_back("INFO", "<ID=SPLICE,Number=0,Type=Flag,Description=\"Is a predicted splicing variant and in splicing gene list\">");
   hdrs.emplace_back("FORMAT","<ID=VAF,Number=1,Type=Float,Description=\"Variant allele fractions with samples having less than two supporting (i.e., ALT) reads set to zero\">");
 
   savvy::writer output_file(argv[2], savvy::file::format::bcf, hdrs, input_file.samples());
@@ -140,10 +171,12 @@ int main(int argc, char** argv)
     for (std::size_t i = 0; i < vaf.size(); ++i)
     {
       float dp = float(ad[i * 2] + ad[i * 2 + 1]);
-      if (std::isfinite(dp) && ad[i * 2 + 1] > 1)
+      float alt_dp = ad[i * 2 + 1];
+      float v = alt_dp / dp;
+      if (std::isfinite(dp) && alt_dp >= min_alt_depth && v >= min_vaf)
       {
-        vaf[i] = float(ad[i * 2 + 1]) / dp;
-        mu += vaf[i];
+        vaf[i] = v;
+        mu += v;
 
         if (std::isfinite(ages[i]))
         {
@@ -221,6 +254,10 @@ int main(int argc, char** argv)
 
     bool off_target = false;
     bool known_mis = false;
+    bool is_lof = false;
+    bool is_splice = false;
+    bool has_splicing_func = false;
+    bool has_exonic_func = false;
 
     std::string s;
     rec.get_info("Gene.refGene", s);
@@ -234,8 +271,19 @@ int main(int argc, char** argv)
     {
       std::size_t func_idx = funcs.size() == genes.size() ? idx : 0;
       std::size_t exon_func_idx = exon_funcs.size() == genes.size() ? idx : 0;
-      if (chip_genes.find(genes[idx]) != chip_genes.end() && ((funcs[func_idx] == "exonic" && exon_funcs[exon_func_idx] != "synonymous_SNV") || funcs[func_idx] == "splicing"))
-        break;
+      if (chip_genes.find(genes[idx]) != chip_genes.end())
+      {
+        if (funcs[func_idx] == "exonic" && exon_funcs[exon_func_idx] != "synonymous_SNV")
+        {
+          has_exonic_func = true;
+          break;
+        }
+        else if (funcs[func_idx] == "splicing")
+        {
+          has_splicing_func = true;
+          break;
+        }
+      }
     }
 
     if (idx >= genes.size())
@@ -245,33 +293,69 @@ int main(int argc, char** argv)
     }
     else
     {
-      rec.get_info("AAChange.refGene", s); //rec.get_info("ExonicFunc.refGene", s);
-      if (!s.empty() && s != ".") //s == "nonsynonymous_SNV")
+      if (has_exonic_func)
       {
-        auto aa_change = str_split(s, ",");
-        for (std::size_t i = 0; i < aa_change.size(); ++i)
+        rec.get_info("AAChange.refGene", s); // rec.get_info("ExonicFunc.refGene", s);
+        if (!s.empty() && s != ".")          // s == "nonsynonymous_SNV")
         {
-          auto aa = str_split(aa_change[i], ":");
-          if (aa.size() != 5 || aa[4].size() < 3)
+          auto aa_change = str_split(s, ",");
+          for (std::size_t i = 0; i < aa_change.size(); ++i)
           {
-           // std::cerr << "Error: cannot parse AAChange.refGene: " << rec.chrom() << ":" << rec.pos() << std::endl;
-          }
-          else
-          {
-            //if (missense_variants.find(aa[0] + "\t" + aa[4].substr(2)) != missense_variants.end())
-            if (missense_variants.find(aa[0] + "\t" + aa[1] + "\t" + aa[4]) != missense_variants.end())
+            auto aa = str_split(aa_change[i], ":");
+            if (aa.size() != 5 || aa[4].size() < 3)
             {
-              known_mis = true;
-              break;
+              // std::cerr << "Error: cannot parse AAChange.refGene: " << rec.chrom() << ":" << rec.pos() << std::endl;
+            }
+            else
+            {
+              // if (missense_variants.find(aa[0] + "\t" + aa[4].substr(2)) != missense_variants.end())
+              if (missense_variants.find(aa[0] + "\t" + aa[1] + "\t" + aa[4]) != missense_variants.end())
+              {
+                known_mis = true;
+                // break;
+              }
+              else if (lof_genes.find(aa[0] + "\t" + aa[1]) != lof_genes.end() && std::regex_search(aa[4], lof_regex))
+              {
+                is_lof = true;
+              }
+            }
+          }
+        }
+      }
+
+      if (has_splicing_func)
+      {
+        rec.get_info("GeneDetail.refGene", s); // rec.get_info("ExonicFunc.refGene", s);
+        if (!s.empty() && s != ".")          // s == "nonsynonymous_SNV")
+        {
+          auto gene_detail = str_split(s, "\\x3b");
+          for (std::size_t i = 0; i < gene_detail.size(); ++i)
+          {
+            auto d = str_split(gene_detail[i], ":");
+            if (d.size() < 2 || d[1].size() < 4 || d[1].compare(0, 4, "exon") != 0)
+            {
+              // std::cerr << "Error: cannot parse GeneDetail.refGene: " << rec.chrom() << ":" << rec.pos() << std::endl;
+            }
+            else
+            {
+              // if (missense_variants.find(aa[0] + "\t" + aa[4].substr(2)) != missense_variants.end())
+              if (splice_genes.find(d[0]) != splice_genes.end())
+              {
+                is_splice = true;
+                // break;
+              }
             }
           }
         }
       }
     }
 
-    auto flt = rec.filters();
+    if (!known_mis)
+    {
 
-    if (n_carriers > 1 && age_n[0] > 1 && age_n[1] > 1) // Both t-tests will be applied
+    }
+
+    /*if (n_carriers > 1 && age_n[0] > 1 && age_n[1] > 1) // Both t-tests will be applied
     {
       flt = {"PASS"};
     }
@@ -300,8 +384,48 @@ int main(int argc, char** argv)
     {
       rec.set_info("KNOWN_CHIP", std::vector<std::int8_t>());
       flt = {"PASS"};
+    }*/
+
+    if (known_mis)
+    {
+      rec.set_info("KNOWN_CHIP", std::vector<std::int8_t>());
     }
 
+    if (is_lof)
+    {
+      rec.set_info("LOF", std::vector<std::int8_t>());
+    }
+
+    if (is_splice)
+    {
+      rec.set_info("SPLICE", std::vector<std::int8_t>());
+    }
+
+    std::vector<std::string> flt; //= rec.filters();
+
+    if (known_mis)
+    {
+      flt = {"PASS"};
+    }
+    else
+    {
+      if (!is_lof && !is_splice)
+        flt.push_back("OFF_TARGET");
+
+      if (apply_germ_and_age_filters)
+      {
+        if (n_carriers > 1 && germ_pval >= 0.05)
+          flt.push_back("GERM");
+
+        if (age_n[0] > 1 && age_n[1] > 1 && age_pval >= 0.05)
+          flt.push_back("AGE_ASSOC");
+      }
+
+      if (flt.empty())
+        flt = {"PASS"};
+    }
+
+#if 0
     int ns;
     rec.get_info("NS", ns);
     for (std::string info : {"DP","ECNT","NLOD","N_ART_LOD","POP_AF","P_CONTAM","P_GERMLINE","TLOD"})
@@ -310,6 +434,7 @@ int main(int argc, char** argv)
       rec.get_info(info, v);
       rec.set_info(info, v / ns); // These Mutect2 INFO fields were summed during `bcftools merge`. Make them averages.
     }
+#endif
 
     rec = savvy::site_info(rec.chrom(), rec.pos(), rec.ref(), rec.alts(), rec.id(), rec.qual(), flt, rec.info_fields());
 
