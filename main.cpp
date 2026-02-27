@@ -58,6 +58,21 @@ std::unordered_set<std::string> split_file_to_set(const char* in)
   return ret;
 }
 
+bool write_detail(std::ostream& os, savvy::site_info& site, const std::string& gene_detail, const std::string& aa_change, float germ_p, float age_p, std::int32_t nc, std::int32_t nca)
+{
+  os << site.chrom()
+    << "\t" << site.pos()
+    << "\t" << site.ref()
+    << "\t" << (site.alts().empty() ? "." : site.alts()[0])
+    << "\t" << (gene_detail.empty() ? "." : gene_detail)
+    << "\t" << (aa_change.empty() ? "." : aa_change)
+    << "\t" << germ_p
+    << "\t" << age_p
+    << "\t" << nc
+    << "\t" << nca;
+  return os.put('\n').good();
+}
+
 std::vector<std::string> split_file_to_vector(const char* in, std::size_t size_hint = 100)
 {
 
@@ -89,6 +104,7 @@ int main(int argc, char** argv)
   m2 = std::regex_search("p.R97fsX121", lof_regex);*/
 
   auto chip_genes = split_file_to_set("data/whitelist_filter_20230531/NEJM_2017_genes_01262020_first_col.MLL_fix.txt");
+  auto chip_gene_accessions = split_file_to_set("data/whitelist_filter_20230531/NEJM_2017_genes_01262020_nocr_mll_fix.accessions.tsv");
   //auto missense_variants = split_file_to_set("data/whitelist_filter_20230531/CHIP_missense_vars_cv_04102022.txt");
   auto missense_variants = split_file_to_set("data/whitelist_filter_20230531/NEJM_2017_genes_01262020.MLL_fix.flatten.cleaned.additional_missense_v3.tsv");
   //auto lof_genes = split_file_to_set("data/whitelist_filter_20230531/CHIP_nonsense_FS_vars_agb_01262020.MLL_fix.txt");
@@ -145,9 +161,13 @@ int main(int argc, char** argv)
   hdrs.emplace_back("INFO", "<ID=KNOWN_CHIP,Number=0,Type=Flag,Description=\"Variant is a known missense or LOF CHIP mutation\">");
   hdrs.emplace_back("INFO", "<ID=LOF,Number=0,Type=Flag,Description=\"Variant is nonsense, nonstop, or frameshif and in loss of function gene list\">");
   hdrs.emplace_back("INFO", "<ID=SPLICE,Number=0,Type=Flag,Description=\"Is a predicted splicing variant and in splicing gene list\">");
-  hdrs.emplace_back("FORMAT","<ID=VAF,Number=1,Type=Float,Description=\"Variant allele fractions with samples having less than two supporting (i.e., ALT) reads set to zero\">");
+  hdrs.emplace_back("FORMAT","<ID=VAF,Number=1,Type=Float,Description=\"Variant allele fractions with zero thresholding applied for min ALT depth and min VAF\">");
 
   savvy::writer output_file(argv[2], savvy::file::format::bcf, hdrs, input_file.samples());
+  shrinkwrap::bgzf::ostream detail_file(argv[3]);
+  detail_file << "CHROM\tPOS\tREF\tALT\tGENE_DETAIL\tAA_CHANGE\tGERM_P\tAGE_P\tNC\tNCA" << std::endl;
+  if (!detail_file)
+    return std::cerr << "Error: could not open detail file\n", EXIT_FAILURE;
 
   std::vector<float> vaf(input_file.samples().size());
   savvy::variant rec;
@@ -293,6 +313,9 @@ int main(int argc, char** argv)
     }
     else
     {
+      std::string aa_out;
+      std::string gene_detail_out;
+
       if (has_exonic_func)
       {
         rec.get_info("AAChange.refGene", s); // rec.get_info("ExonicFunc.refGene", s);
@@ -308,6 +331,18 @@ int main(int argc, char** argv)
             }
             else
             {
+              if (chip_gene_accessions.find(aa[1]) != chip_gene_accessions.end())
+              {
+                if (aa_out.size() > 0)
+                {
+                  std::cerr << "Warning: duplicagted accession record - aa change\n";
+                }
+                else
+                {
+                  aa_out = aa_change[i];
+                }
+              }
+
               // if (missense_variants.find(aa[0] + "\t" + aa[4].substr(2)) != missense_variants.end())
               if (missense_variants.find(aa[0] + "\t" + aa[1] + "\t" + aa[4]) != missense_variants.end())
               {
@@ -338,6 +373,18 @@ int main(int argc, char** argv)
             }
             else
             {
+              if (chip_gene_accessions.find(d[0]) != chip_gene_accessions.end())
+              {
+                if (gene_detail_out.size() > 0)
+                {
+                  std::cerr << "Warning: duplicagted accession record - gene detail\n";
+                }
+                else
+                {
+                  gene_detail_out = gene_detail[i];
+                }
+              }
+
               // if (missense_variants.find(aa[0] + "\t" + aa[4].substr(2)) != missense_variants.end())
               if (splice_genes.find(d[0]) != splice_genes.end())
               {
@@ -347,6 +394,12 @@ int main(int argc, char** argv)
             }
           }
         }
+      }
+
+      if (aa_out.size() + gene_detail_out.size() > 0)
+      {
+        if (!write_detail(detail_file, rec, gene_detail_out, aa_out, germ_pval, age_pval, n_carriers, age_n[1]))
+          return std::cerr << "Error: failed to write to detail file\n", EXIT_FAILURE;
       }
     }
 
