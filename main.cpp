@@ -92,6 +92,7 @@ std::vector<std::string> split_file_to_vector(const char* in, std::size_t size_h
 int main(int argc, char** argv)
 {
   const int min_alt_depth = 3;
+  const int min_alt_depth_u2af1 = 5;
   const float min_vaf = 0.02f;
   const bool apply_germ_and_age_filters = false;
 
@@ -103,6 +104,7 @@ int main(int argc, char** argv)
   m2 = std::regex_search("p.R123fs*10", lof_regex);
   m2 = std::regex_search("p.R97fsX121", lof_regex);*/
 
+#if 0
   auto chip_genes = split_file_to_set("data/whitelist_filter_20230531/NEJM_2017_genes_01262020_first_col.MLL_fix.txt");
   auto chip_gene_accessions = split_file_to_set("data/whitelist_filter_20230531/NEJM_2017_genes_01262020_nocr_mll_fix.accessions.tsv");
   //auto missense_variants = split_file_to_set("data/whitelist_filter_20230531/CHIP_missense_vars_cv_04102022.txt");
@@ -120,7 +122,7 @@ int main(int argc, char** argv)
       return std::cerr << "Error: could not parse splicing genee list\n", EXIT_FAILURE;
     splice_genes.insert(fields[1]);
   }
-
+#endif
   std::vector<float> ages;
   {
     std::vector<std::string> ages_str;
@@ -148,7 +150,7 @@ int main(int argc, char** argv)
   bool b = input_file.good();
 
   auto hdrs = input_file.headers();
-  hdrs.emplace_back("FILTER", "<ID=OFF_TARGET, Description=\"Not an exonic of splicing variant in target gene\">");
+  //hdrs.emplace_back("FILTER", "<ID=OFF_TARGET, Description=\"Not an exonic of splicing variant in target gene\">");
   if (apply_germ_and_age_filters)
   {
     hdrs.emplace_back("FILTER", "<ID=GERM, Description=\"Failed germline test\">");
@@ -158,16 +160,18 @@ int main(int argc, char** argv)
   hdrs.emplace_back("INFO", "<ID=NCA,Number=1,Type=Integer,Description=\"Number of CHIP carriers with known age\">");
   hdrs.emplace_back("INFO", "<ID=AGE_P,Number=1,Type=Float,Description=\"Age association test log10 p-value\">");
   hdrs.emplace_back("INFO", "<ID=GERM_P,Number=1,Type=Float,Description=\"Germline test p-value\">");
-  hdrs.emplace_back("INFO", "<ID=KNOWN_CHIP,Number=0,Type=Flag,Description=\"Variant is a known missense or LOF CHIP mutation\">");
-  hdrs.emplace_back("INFO", "<ID=LOF,Number=0,Type=Flag,Description=\"Variant is nonsense, nonstop, or frameshif and in loss of function gene list\">");
-  hdrs.emplace_back("INFO", "<ID=SPLICE,Number=0,Type=Flag,Description=\"Is a predicted splicing variant and in splicing gene list\">");
+  hdrs.emplace_back("INFO", "<ID=AGE_M_DIFF,Number=1,Type=Float,Description=\"Difference between mean age of carriers and non-carriers\">");
+  hdrs.emplace_back("INFO", "<ID=VAF_M,Number=1,Type=Float,Description=\"Mean VAF\">");
+//  hdrs.emplace_back("INFO", "<ID=KNOWN_CHIP,Number=0,Type=Flag,Description=\"Variant is a known missense or LOF CHIP mutation\">");
+//  hdrs.emplace_back("INFO", "<ID=LOF,Number=0,Type=Flag,Description=\"Variant is nonsense, nonstop, or frameshif and in loss of function gene list\">");
+//  hdrs.emplace_back("INFO", "<ID=SPLICE,Number=0,Type=Flag,Description=\"Is a predicted splicing variant and in splicing gene list\">");
   hdrs.emplace_back("FORMAT","<ID=VAF,Number=1,Type=Float,Description=\"Variant allele fractions with zero thresholding applied for min ALT depth and min VAF\">");
 
   savvy::writer output_file(argv[2], savvy::file::format::bcf, hdrs, input_file.samples());
-  shrinkwrap::bgzf::ostream detail_file(argv[3]);
-  detail_file << "CHROM\tPOS\tREF\tALT\tGENE_DETAIL\tAA_CHANGE\tGERM_P\tAGE_P\tNC\tNCA" << std::endl;
-  if (!detail_file)
-    return std::cerr << "Error: could not open detail file\n", EXIT_FAILURE;
+//  shrinkwrap::bgzf::ostream detail_file(argv[3]);
+//  detail_file << "CHROM\tPOS\tREF\tALT\tGENE_DETAIL\tAA_CHANGE\tGERM_P\tAGE_P\tNC\tNCA" << std::endl;
+//  if (!detail_file)
+//    return std::cerr << "Error: could not open detail file\n", EXIT_FAILURE;
 
   std::vector<float> vaf(input_file.samples().size());
   savvy::variant rec;
@@ -184,6 +188,10 @@ int main(int argc, char** argv)
     if (ad.size() != vaf.size() * 2)
       return std::cerr << "Error: AD has wrong length\n", EXIT_FAILURE;
 
+    std::string gene;
+    rec.get_info("Gene.refGene", gene);
+    bool is_u2af1 =  gene == "U2AF1\\x3bU2AF1L5";
+
     double mu = 0.;
     std::array<double, 2> age_mu{};// {non-carrier, carrier}
     std::array<std::int32_t, 2> age_n{};
@@ -193,7 +201,7 @@ int main(int argc, char** argv)
       float dp = float(ad[i * 2] + ad[i * 2 + 1]);
       float alt_dp = ad[i * 2 + 1];
       float v = alt_dp / dp;
-      if (std::isfinite(dp) && alt_dp >= min_alt_depth && v >= min_vaf)
+      if (std::isfinite(dp) && alt_dp >= (is_u2af1 ? min_alt_depth_u2af1 : min_alt_depth) && v >= min_vaf)
       {
         vaf[i] = v;
         mu += v;
@@ -224,6 +232,12 @@ int main(int argc, char** argv)
     mu = mu / n_carriers;
     age_mu[0] = age_mu[0] / age_n[0];
     age_mu[1] = age_mu[1] / age_n[1];
+
+    if (n_carriers > 0)
+      rec.set_info("VAF_M", float(mu));
+
+    if (age_n[0] > 0 && age_n[1] > 0)
+      rec.set_info("AGE_M_DIFF", float(age_mu[1] - age_mu[0]));
 
     double germ_pval = std::numeric_limits<double>::quiet_NaN();
     double age_pval = std::numeric_limits<double>::quiet_NaN();
@@ -271,7 +285,7 @@ int main(int argc, char** argv)
       rec.set_info("AGE_P", float(std::log10(age_pval)));
     }
 
-
+#if 0
     bool off_target = false;
     bool known_mis = false;
     bool is_lof = false;
@@ -478,17 +492,18 @@ int main(int argc, char** argv)
         flt = {"PASS"};
     }
 
-#if 0
-    int ns;
-    rec.get_info("NS", ns);
-    for (std::string info : {"DP","ECNT","NLOD","N_ART_LOD","POP_AF","P_CONTAM","P_GERMLINE","TLOD"})
-    {
-      float v;
-      rec.get_info(info, v);
-      rec.set_info(info, v / ns); // These Mutect2 INFO fields were summed during `bcftools merge`. Make them averages.
-    }
+
+//    int ns;
+//    rec.get_info("NS", ns);
+//    for (std::string info : {"DP","ECNT","NLOD","N_ART_LOD","POP_AF","P_CONTAM","P_GERMLINE","TLOD"})
+//    {
+//      float v;
+//      rec.get_info(info, v);
+//      rec.set_info(info, v / ns); // These Mutect2 INFO fields were summed during `bcftools merge`. Make them averages.
+//    }
 #endif
 
+    auto flt = rec.filters();
     rec = savvy::site_info(rec.chrom(), rec.pos(), rec.ref(), rec.alts(), rec.id(), rec.qual(), flt, rec.info_fields());
 
     output_file << rec;
