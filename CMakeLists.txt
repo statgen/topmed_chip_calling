@@ -9,3 +9,5 @@ find_package(Boost REQUIRED)
 add_executable(chfilter main.cpp tcdf.hpp)
 target_include_directories(chfilter PRIVATE include ${Boost_INCLUDE_DIRS})
 target_link_libraries(chfilter savvy)
+
+install(TARGETS chfilter RUNTIME DESTINATION bin)
