@@ -1,0 +1,83 @@
+BootStrap: docker
+From: ubuntu:24.04
+
+%files
+  ./annovar.latest.tar.gz /annovar.latest.tar.gz 
+  ./chfilter /chfilter
+
+%environment
+  export LC_ALL=C
+  export GATK_LOCAL_JAR=/gatk/gatk-4.0.6.0/gatk-package-4.0.6.0-local.jar
+
+%post -c /bin/bash
+  # https://www.openbioinformatics.org/annovar/annovar_download_form.php
+  set -euo pipefail
+
+  apt update && DEBIAN_FRONTEND=noninteractive apt -y install \
+    build-essential \
+    bzip2 \
+    cmake \
+    default-jre \
+    libbz2-dev \
+    liblzma-dev \
+    libboost-all-dev \
+    libncurses5-dev \
+    perl \
+    python-is-python3 python3 \
+    r-base \
+    unzip \
+    zlib1g \
+    zlib1g-dev \
+    wget
+
+  cd /chfilter
+  cmake -P cmake/get-dependencies.cmake /chfilter/cget
+  mkdir build
+  cd build
+  cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH=/chfilter/cget \
+    -DCMAKE_CXX_FLAGS="-I/chfilter/cget/include" \
+    ..
+  make
+  make install
+
+  echo 'install.packages(c("data.table", "readr", "stringr"), repos = "https://cloud.r-project.org")' | Rscript /dev/stdin
+
+  cd /
+  
+  wget https://raw.githubusercontent.com/briansha/Annovar_Whitelist_Filter_WDL/aa1226a952ef6c681609bac82d2da5fffb6f4869/whitelist_filter_rscript.R
+
+  tar -xzvf /annovar.latest.tar.gz
+  cd /annovar/
+  perl annotate_variation.pl -buildver hg38 -downdb -webfrom annovar refGene humandb/
+  perl annotate_variation.pl -buildver hg38 -downdb -webfrom annovar cosmic70 humandb/
+
+  mkdir /samtools
+  cd /samtools
+  wget -N -c https://github.com/samtools/samtools/releases/download/1.16/samtools-1.16.tar.bz2
+  tar -xjvf  samtools-1.16.tar.bz2
+  cd samtools-1.16
+  ./configure --prefix=/usr/local # --disable-bz2
+  make
+  make install
+
+  mkdir /bcftools
+  cd /bcftools
+  wget -N -c https://github.com/samtools/bcftools/releases/download/1.16/bcftools-1.16.tar.bz2
+  tar -xjvf  bcftools-1.16.tar.bz2
+  cd bcftools-1.16
+  ./configure --prefix=/usr/local # --disable-bz2
+  make
+  make install
+  cd htslib-1.16
+  make bgzip tabix
+  cp bgzip tabix /usr/local/bin/
+
+  mkdir /gatk
+  cd /gatk
+  wget https://github.com/broadinstitute/gatk/releases/download/4.0.6.0/gatk-4.0.6.0.zip
+  unzip -o gatk-4.0.6.0.zip
+  export GATK_LOCAL_JAR=/gatk/gatk-4.0.6.0/gatk-package-4.0.6.0-local.jar
+  cp gatk-4.0.6.0/gatk /usr/local/bin/
+
