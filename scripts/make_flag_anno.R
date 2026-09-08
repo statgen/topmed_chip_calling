@@ -9,10 +9,10 @@ df$var_id = paste(df$CHROM, df$POS, df$REF, df$ALT, sep=":")
 df_out = df[!duplicated(df$var_id), c("CHROM","POS","REF","ALT")]
 rownames(df_out) = paste(df_out$CHROM, df_out$POS, df_out$REF, df_out$ALT, sep=":")
 
-known_chip_variants = as.data.frame(read_tsv("whitelist_filter_files/NEJM_2017_genes_01262020.MLL_fix.flatten.cleaned.additional_missense_v3.tsv"))
+known_chip_variants = as.data.frame(read_tsv("target_resources/NEJM_2017_genes_01262020.MLL_fix.flatten.cleaned.additional_missense_v3.tsv"))
 known_chip_keys = paste(known_chip_variants$Accession, known_chip_variants$AAChange)
-lof_genes = as.data.frame(read_tsv("whitelist_filter_files/NEJM_2017_genes_01262020_nocr_mll_fix.lof.tsv"))
-splice_genes = as.data.frame(read_tsv("whitelist_filter_files/NEJM_2017_genes_01262020_nocr_mll_fix.splice.tsv"))
+lof_genes = as.data.frame(read_tsv("target_resources/NEJM_2017_genes_01262020_nocr_mll_fix.lof.tsv"))
+splice_genes = as.data.frame(read_tsv("target_resources/NEJM_2017_genes_01262020_nocr_mll_fix.splice.tsv"))
 
 is_known = paste(str_split_i(df$AAChange.refGene, ":", 2), str_split_i(df$AAChange.refGene, ":", 5)) %in% known_chip_keys
 is_lof = str_split_i(df$AAChange.refGene, ":", 2) %in% lof_genes$Accession & grepl("fs|X|\\*", str_split_i(df$AAChange.refGene, ":", 5)) & df$ExonicFunc.refGene %in% c("frameshift_deletion","frameshift_insertion","stopgain","stoploss","startloss")
