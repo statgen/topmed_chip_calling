@@ -378,15 +378,15 @@ rule updated_info_vcf:
         bcftools index --force {output}
         """
 
-rule filtered_merged_vcf:
+rule filtered_sites_vcf:
     input:
-        vcf = rules.updated_info_vcf.output
+        rules.updated_info_vcf.output
     output:
-        "merged.updated_info.filtered.ad_vaf.bcf"
+        "merged.updated_info.filtered.sites.vcf.gz"
     shell:
         """
         set -euo pipefail
 
-        scripts/annotate_info.sh {input} | bgzip > {output}
+        bcftools filter {input} -i '1==1' -m x | bcftools filter -m + -s OFF_TARGET -i 'KNOWN_CHIP=1 || LOF=1 || SPLICE=1 || EXCEPTION=1' | bcftools filter -m + -s artifact_in_normal -e '(FILTCNT_artifact_in_normal / NS) >= 0.50' | bcftools filter -m + -s base_quality -e '(FILTCNT_base_quality / NS) >= 0.20' | bcftools filter -m + -s clustered_events -e '(FILTCNT_clustered_events / NS) >= 0.40' | bcftools filter -m + -s contamination -e '(FILTCNT_contamination / NS) >= 0.50' | bcftools filter -m + -s duplicate_evidence -e '(FILTCNT_duplicate_evidence / NS) >= 0.50' | bcftools filter -m + -s fragment_length -e '(FILTCNT_fragment_length / NS) >= 0.50' | bcftools filter -m + -s germline_risk -e '(FILTCNT_germline_risk / NS) >= 0.90' | bcftools filter -m + -s mapping_quality -e '(FILTCNT_mapping_quality / NS) >= 0.50' | bcftools filter -m + -s multiallelic -e '(FILTCNT_multiallelic / NS) >= 0.50' | bcftools filter -m + -s panel_of_normals -e '(FILTCNT_panel_of_normals / NS) >= 0.50' | bcftools filter -m + -s read_position -e '(FILTCNT_read_position / NS) >= 0.50' | bcftools filter -m + -s str_contraction -e '(FILTCNT_str_contraction / NS) >= 0.75' | bcftools filter -m + -s strand_artifact -e '(FILTCNT_strand_artifact / NS) >= 0.50' | bcftools filter -m + -s t_lod -e '(FILTCNT_t_lod / NS) >= 0.85' | bcftools filter -m + -s GERMLINE_PROB -e 'P_GERMLINE != "." && P_GERMLINE > -1.30103 && (GERM_P == "." || GERM_P > -1.30103)' -Oz -o {output}
         bcftools index --force {output}
         """
