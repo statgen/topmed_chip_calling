@@ -1,0 +1,21 @@
+cram_expr: "input/{sample_id}.cram"
+ref_cache: "resources/ref/md5/%2s/%2s/%s" 
+is_run_orientation_bias_filter: false
+is_run_oncotator: false
+variants_for_contamination: "resources/small_exac_common_3.hg38.vcf.gz"
+pon: "resources/PON.vcf"
+ref_fasta: "resources/ref/hs38DH.fa"
+intervals: "target_resources/CHIP_NEJM2017_74genes.bed"
+#intervals_wg: "resources/wgs_calling_regions.hg38.interval_list"
+#variants_for_contamination_index: "gs://gatk-best-practices/somatic-hg38/small_exac_common_3.hg38.vcf.gz.tbi"
+#gatk_docker: "us.gcr.io/broad-gatk/gatk@sha256:a856882a27604d89de0a80bfe84a703f38a91338e1b6d05efe9a398b10c065c3"
+gnomad: resources/af-only-gnomad.hg38.vcf.gz
+ref_dict: resources/ref/hs38DH.dict
+artifact_modes: 
+  - "G/T"
+  - "C/T"
+Filter.mem: 30
+picard_jar: resources/picard.jar
+#gnomad_index: gs://gatk-best-practices/somatic-hg38/af-only-gnomad.hg38.vcf.gz.tbi
+compress_vcfs: true
+ids_file: sample_ids.txt
