@@ -383,10 +383,25 @@ rule filtered_sites_vcf:
         rules.updated_info_vcf.output
     output:
         "merged.updated_info.filtered.sites.vcf.gz"
+    params:
+        artifact_in_normal_prop = 0.5,
+        base_quality_prop = 0.2,
+        clustered_events_prop = 0.4,
+        contamination_prop = 0.5,
+        duplicate_evidence_prop = 0.5,
+        fragment_length_prop = 0.5,
+        germline_risk_prop = 0.9,
+        mapping_quality_prop = 0.5,
+        multiallelic_prop = 0.5,
+        panel_of_normals_prop = 0.5,
+        read_position_prop = 0.5,
+        str_contraction_prop = 0.75,
+        strand_artifact_prop = 0.5,
+        t_lod_prop = 0.85
     shell:
         """
         set -euo pipefail
 
-        bcftools filter {input} -i '1==1' -m x | bcftools filter -m + -s OFF_TARGET -i 'KNOWN_CHIP=1 || LOF=1 || SPLICE=1 || EXCEPTION=1' | bcftools filter -m + -s artifact_in_normal -e '(FILTCNT_artifact_in_normal / NS) >= 0.50' | bcftools filter -m + -s base_quality -e '(FILTCNT_base_quality / NS) >= 0.20' | bcftools filter -m + -s clustered_events -e '(FILTCNT_clustered_events / NS) >= 0.40' | bcftools filter -m + -s contamination -e '(FILTCNT_contamination / NS) >= 0.50' | bcftools filter -m + -s duplicate_evidence -e '(FILTCNT_duplicate_evidence / NS) >= 0.50' | bcftools filter -m + -s fragment_length -e '(FILTCNT_fragment_length / NS) >= 0.50' | bcftools filter -m + -s germline_risk -e '(FILTCNT_germline_risk / NS) >= 0.90' | bcftools filter -m + -s mapping_quality -e '(FILTCNT_mapping_quality / NS) >= 0.50' | bcftools filter -m + -s multiallelic -e '(FILTCNT_multiallelic / NS) >= 0.50' | bcftools filter -m + -s panel_of_normals -e '(FILTCNT_panel_of_normals / NS) >= 0.50' | bcftools filter -m + -s read_position -e '(FILTCNT_read_position / NS) >= 0.50' | bcftools filter -m + -s str_contraction -e '(FILTCNT_str_contraction / NS) >= 0.75' | bcftools filter -m + -s strand_artifact -e '(FILTCNT_strand_artifact / NS) >= 0.50' | bcftools filter -m + -s t_lod -e '(FILTCNT_t_lod / NS) >= 0.85' | bcftools filter -m + -s GERMLINE_PROB -e 'P_GERMLINE != "." && P_GERMLINE > -1.30103 && (GERM_P == "." || GERM_P > -1.30103)' -Oz -o {output}
+        bcftools filter {input} -i '1==1' -m x | bcftools filter -m + -s OFF_TARGET -i 'KNOWN_CHIP=1 || LOF=1 || SPLICE=1 || EXCEPTION=1' | bcftools filter -m + -s artifact_in_normal -e '(FILTCNT_artifact_in_normal / NS) >= {params.artifact_in_normal_prop}' | bcftools filter -m + -s base_quality -e '(FILTCNT_base_quality / NS) >= {params.base_quality_prop}' | bcftools filter -m + -s clustered_events -e '(FILTCNT_clustered_events / NS) >= {params.clustered_events_prop}' | bcftools filter -m + -s contamination -e '(FILTCNT_contamination / NS) >= {params.contamination_prop}' | bcftools filter -m + -s duplicate_evidence -e '(FILTCNT_duplicate_evidence / NS) >= {params.duplicate_evidence_prop}' | bcftools filter -m + -s fragment_length -e '(FILTCNT_fragment_length / NS) >= {params.fragment_length_prop}' | bcftools filter -m + -s germline_risk -e '(FILTCNT_germline_risk / NS) >= {params.germline_risk_prop}' | bcftools filter -m + -s mapping_quality -e '(FILTCNT_mapping_quality / NS) >= {params.mapping_quality_prop}' | bcftools filter -m + -s multiallelic -e '(FILTCNT_multiallelic / NS) >= {params.multiallelic_prop}' | bcftools filter -m + -s panel_of_normals -e '(FILTCNT_panel_of_normals / NS) >= {params.panel_of_normals_prop}' | bcftools filter -m + -s read_position -e '(FILTCNT_read_position / NS) >= {params.read_position_prop}' | bcftools filter -m + -s str_contraction -e '(FILTCNT_str_contraction / NS) >= {params.str_contraction_prop}' | bcftools filter -m + -s strand_artifact -e '(FILTCNT_strand_artifact / NS) >= {params.strand_artifact_prop}' | bcftools filter -m + -s t_lod -e '(FILTCNT_t_lod / NS) >= {params.t_lod_prop}' | bcftools filter -m + -s GERMLINE_PROB -e 'P_GERMLINE != "." && P_GERMLINE > -1.30103 && (GERM_P == "." || GERM_P > -1.30103)' -Oz -o {output}
         bcftools index --force {output}
         """
