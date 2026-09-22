@@ -1,1 +1,0 @@
-snakemake merged_ad_bcf --snakefile Snakefile-merge --cluster 'sbatch --partition topmed-working -x topmed11 --cpus-per-task 10 -o logs/slurm-%j.log' --keep-going --latency-wait 30 -j20; echo sleeping; sleep 30d
