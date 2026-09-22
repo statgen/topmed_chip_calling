@@ -20,7 +20,7 @@ rule unfiltered_vcf:
     input:
         config["cram_expr"]
     output:
-        "m2/{sample_id}.vcf.gz"
+        "single_sample/m2/{sample_id}.vcf.gz"
     resources:
         mem_mb = 16000
     shell:
@@ -64,9 +64,9 @@ rule contamination_table:
     input:
         config["cram_expr"]
     output:
-        pileups="contam/{sample_id}.pileup.tsv",
-        contamination_table="contam/{sample_id}.contam.tsv",
-        maf_segments="contam/{sample_id}.segments.tsv"
+        pileups="single_sample/contam/{sample_id}.pileup.tsv",
+        contamination_table="single_sample/contam/{sample_id}.contam.tsv",
+        maf_segments="single_sample/contam/{sample_id}.segments.tsv"
     resources:
         mem_mb = 16000
     shell:
@@ -107,7 +107,7 @@ rule filtered_vcf:
         contamination_table = rules.contamination_table.output.contamination_table,
         maf_segments = rules.contamination_table.output.maf_segments
     output:
-        "filter/{sample_id}.filtered.vcf.gz"
+        "single_sample/filter/{sample_id}.filtered.vcf.gz"
     resources:
         mem_mb = 16000
     shell:
@@ -136,8 +136,8 @@ rule annovar_vcf:
     input:
         rules.filtered_vcf.output
     output:
-        txt = "annovar/{sample_id}.annovar_out.hg38_multianno.txt",
-        vcf = "annovar/{sample_id}.annovar_out.hg38_multianno.vcf"
+        txt = "single_sample/annovar/{sample_id}.annovar_out.hg38_multianno.txt",
+        vcf = "single_sample/annovar/{sample_id}.annovar_out.hg38_multianno.vcf"
     resources:
         mem_mb = mem_step_size
     shell:
@@ -157,9 +157,30 @@ rule all_annovar:
     input: [rules.annovar_vcf.output[0].format(sample_id=id) for id in get_ids()]
 
 
+rule region_counts:
+    singularity: "docker:jweinstk/pileup_region"
+    input:
+        config["cram_expr"]
+    output:
+        "single_sample/region_counts/{sample_id}.counts.tsv"
+    resources:
+        mem_mb = mem_step_size
+    shell:
+        """
+        set -eu
+        tmp_dir=`mktemp -d`
+        tmp_out=$tmp_dir/$(basename {output})
+
+        pileup_region u2af1_vars.txt {input} {config[ref_fasta]} > $tmp_out
+
+        mv $tmp_out {output}
+        rm -r $tmp_dir
+        """
+
+
 rule merged_batch:
     input:
-        lambda wc: ["annovar/{sid}.annovar_out.hg38_multianno.vcf".format(sid=s) for s in get_ids()[(int(wc.batch_beg)-1):int(wc.batch_end)]]
+        lambda wc: ["single_sample/annovar/{sid}.annovar_out.hg38_multianno.vcf".format(sid=s) for s in get_ids()[(int(wc.batch_beg)-1):int(wc.batch_end)]]
     output:
         "merged_batch/merged_batch.{batch_beg}_{batch_end}.bcf"
     params:
@@ -217,7 +238,7 @@ rule merged_ad_bcf:
 
 rule merged_u2af1_batch:
     input:
-        lambda wc: ["region_counts/{sid}.counts.tsv".format(sid=s) for s in get_ids()[(int(wc.batch_beg)-1):int(wc.batch_end)]]
+        lambda wc: ["single_sample/region_counts/{sid}.counts.tsv".format(sid=s) for s in get_ids()[(int(wc.batch_beg)-1):int(wc.batch_end)]]
     output:
         "merged_u2af1_batch/merged_u2af1_batch.{batch_beg}_{batch_end}.bcf"
     params:
@@ -349,6 +370,19 @@ rule updated_info_vcf:
         chip_flags = rules.chip_flags_anno.output
     output:
         "filter/merged.updated_info.sites.vcf.gz"
+    shell:
+        """
+        set -euo pipefail
+
+        scripts/annotate_info.sh {input} | bgzip > {output}
+        bcftools index --force {output}
+        """
+
+rule filtered_merged_vcf:
+    input:
+        vcf = rules.updated_info_vcf.output
+    output:
+        "merged.updated_info.filtered.ad_vaf.bcf"
     shell:
         """
         set -euo pipefail
